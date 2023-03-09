@@ -5,34 +5,60 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import { typeDefs } from './types';
-import { users } from './mocks';
+import { typeDefs } from './schemas';
+import { MongoDBDataSource } from './datasources';
 
 
-// A map of functions which return data for the schema.
 const resolvers = {
   Query: {
-    user(parent, args, contextValue, info) {
-      return users.find((user) => user.id === args.id);
-    },
+    users: (parent: unknown, args: unknown, { dataSources: { mongo } }: Context, info: unknown) => {
+      return mongo.getUsers()
+    }
   },
 };
+
+export type Context = {
+  dataSources: {
+    mongo: MongoDBDataSource;
+  };
+  token: string;
+
+}
 
 const app = express();
 const httpServer = http.createServer(app);
 
-// Set up Apollo Server
-const server = new ApolloServer({
+const server = new ApolloServer<Context>({
   typeDefs,
   resolvers,
   plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+
 });
 
 server.start().then(() => {
   app.use(
     cors(),
     bodyParser.json(),
-    expressMiddleware(server),
+    expressMiddleware(server, {
+      context: async () => {
+        let context
+        try {
+          const mongoDataSource = new MongoDBDataSource({ token: "" })
+
+          await mongoDataSource.init()
+          context = {
+            dataSources: {
+              mongo: mongoDataSource
+            },
+            token: ""
+          }
+        } catch (err) {
+          throw new Error((err as Error).message)
+        }
+
+        return context
+      }
+    }),
   );
 
   httpServer.listen({ port: 4000 })
